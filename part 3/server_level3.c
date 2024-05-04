@@ -6,19 +6,35 @@
 #include <sys/socket.h>
 #include <sys/poll.h>
 #include <arpa/inet.h>
+#include <stdbool.h> 
 
 #define PORT 8080
 #define MAX_CLIENTS 200
 #define BUFFER_SIZE 1024
 
-// Function to check primality
-int is_prime(long long num) {
-    if (num <= 1) return 0;
-    if (num % 2 == 0 && num > 2) return 0;
-    for (long long i = 3; i * i <= num; i += 2) {
-        if (num % i == 0) return 0;
+// rabin miller primality test 
+bool isPrime(long long n, int iterations) {
+    if (n <= 1 || n == 4)
+        return false;
+    if (n <= 3)
+        return true;
+
+    while (iterations > 0) {
+        long long a = 2 + (long long)rand() % (n - 4);
+        long long x = a % n;
+        long long y = n - 1;
+        long long result = 1;
+        while (y > 0) {
+            if (y & 1)
+                result = (result * x) % n;
+            y >>= 1;
+            x = (x * x) % n;
+        }
+        if (result != 1)
+            return false;
+        iterations--;
     }
-    return 1;
+    return true;
 }
 
 int main() {
@@ -30,10 +46,12 @@ int main() {
     long long highest_prime = 0;
     int requestCounter = 0, clientCounter = 0;
 
+    // Set up server address structure
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(PORT);
 
+    // create socket
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
         perror("socket failed");
         exit(EXIT_FAILURE);
@@ -45,11 +63,14 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
+
+    // bind socket to address and port
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
         perror("bind failed");
         exit(EXIT_FAILURE);
     }
 
+    // listen for new conncetions
     if (listen(server_fd, 10) < 0) {
         perror("listen");
         exit(EXIT_FAILURE);
@@ -59,13 +80,15 @@ int main() {
     fds[0].events = POLLIN;
     memset(fds + 1, 0 , sizeof(struct pollfd) * (MAX_CLIENTS - 1));
 
+
+    // open log file for writing
     logFile = fopen("server_log.txt", "w");
     if (!logFile) {
-        perror("Failed to open log file");
+        perror("failed to open log file");
         exit(EXIT_FAILURE);
     }
 
-    printf("The server is waiting for connections...\n");
+    printf("The server is waiting for connections in port 8080..\n");
 
     while (1) {
         int activity = poll(fds, MAX_CLIENTS, -1);
@@ -74,7 +97,7 @@ int main() {
             continue;
         }
 
-        // Accept new connections
+        // accept new connections
         if (fds[0].revents & POLLIN) {
             addrlen = sizeof(address);
             new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen);
@@ -94,14 +117,14 @@ int main() {
             }
         }
 
-        // Handle data from clients
+        // handle data from clients
         for (int i = 1; i < MAX_CLIENTS; i++) {
             if (fds[i].fd > 0 && (fds[i].revents & POLLIN)) {
                 valread = read(fds[i].fd, buffer, BUFFER_SIZE - 1);
                 if (valread > 0) {
                     buffer[valread] = '\0';
                     long long num = atoll(buffer);
-                    int prime = is_prime(num);
+                    int prime = isPrime(num, 5); // using the rabin miller test
                     requestCounter++;
                     if (prime) {
                         if (num > highest_prime) highest_prime = num;
@@ -117,7 +140,7 @@ int main() {
                 if (valread <= 0) {
                     printf("Client number %d disconnected: socket fd %d\n", clientCounter, fds[i].fd);
                     close(fds[i].fd);
-                    fds[i].fd = 0; // Mark as available
+                    fds[i].fd = 0; // mark as available
                 }
             }
         }
